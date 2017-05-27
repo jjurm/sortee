@@ -3,139 +3,143 @@ var SORTEE_KEY = "sortee";
 class List {
 	constructor(name) {
 		this.name = name;
-		this.nextIndex = 0;
 		this.items = [];
-		this.relations = [];
+		this.table = [];
+
+		this.REL_A = 0;
+		this.REL_B = 1;
+		this.REL_UNKNOWN = 2;
 	}
 	addItemByName(name) {
-		var item = new Item(this.nextIndex++, name);
 		for (var i = 0; i < this.items.length; i++) {
-			var relation = new Relation(this.items[i], item);
-			this.relations.push(relation);
+			this.table.push(this.REL_UNKNOWN);
 		}
-		this.items.push(item);
-		return item;
+		this.items.push(name);
+		return this.items.length - 1;
+	}
+	convertTableIndex(p) {
+		if (Array.isArray(p)) {
+			var a = Math.min(p[0], p[1]);
+			var b = Math.max(p[0], p[1]);
+			var index = b * (b-1) / 2 + a;
+			return index;
+		} else {
+			var index = p;
+			var b = Math.floor((1+Math.sqrt(1+8*index))/2);
+			var a = index - b * (b-1) / 2;
+			return [a, b];
+		}
+	}
+	toIndex(p) {
+		if (Array.isArray(p)) {
+			return this.convertTableIndex(p);
+		} else {
+			return p;
+		}
+	}
+	toAB(p) {
+		if (Array.isArray(p)) {
+			return p;
+		} else {
+			return this.convertTableIndex(p);
+		}
+	}
+	getTable(p) {
+		return this.table[this.toIndex(p)];
+	}
+	setTable(p, rel) {
+		this.table[this.toIndex(p)] = rel;
+	}
+	setFirstSecond(first, second) {
+		if (first < second) {
+			this.setTable([first, second], this.REL_A);
+		} else {
+			this.setTable([first, second], this.REL_B);
+		}
+	}
+	isUnknown(p) {
+		return this.getTable(p) == this.REL_UNKNOWN;
+	}
+	isAFirst(p) {
+		return this.getTable(p) == this.REL_A;
+	}
+	isBFirst(p) {
+		return this.getTable(p) == this.REL_B;
+	}
+	contains(p, item) {
+		var ab = this.toAB(p);
+		return item == ab[0] || item == ab[1];
+	}
+	isFirst(p, item) {
+		var ab = this.toAB(p);
+		return (item == ab[0] && this.isAFirst(p, item)) || (item == ab[1] && this.isBFirst(p, item));
+	}
+	isSecond(p, item) {
+		var ab = this.toAB(p);
+		return (item == ab[0] && this.isBFirst(p, item)) || (item == ab[1] && this.isAFirst(p, item));
 	}
 	getUnknown() {
-		for (var i = 0; i < this.relations.length; i++) {
-			if (this.relations[i].isUnknown())
-				return this.relations[i];
+		for (var i = 0; i < this.table.length; i++) {
+			if (this.isUnknown(i)) {
+				return this.toAB(i);
+			}
 		}
 	}
 	unknownCount() {
 		var count = 0;
-		for (var i = 0; i < this.relations.length; i++) {
-			if (this.relations[i].isUnknown()) count++;
+		for (var i = 0; i < this.table.length; i++) {
+			if (this.isUnknown(i))
+				count++;
 		}
 		return count;
 	}
+	getUpper(item) {
+		var upper = [];
+		for (var i = 0; i < this.items.length; i++) {
+			if (item != i && this.isSecond([item, i], item)) {
+				upper.push(i);
+			}
+		}
+		return upper;
+	}
+	getLower(item) {
+		var lower = [];
+		for (var i = 0; i < this.items.length; i++) {
+			if (item != i && this.isFirst([item, i], item)) {
+				lower.push(i);
+			}
+		}
+		return lower;
+	}
 	resolve(first, second) {
-		var upper = first .getUpper(); upper.push(first );
-		var lower = second.getLower(); lower.push(second);
-		for (var i = 0; i < this.relations.length; i++) {
-			var rel = this.relations[i];
-			if (rel.isUnknown()) {
-				if (upper.includes(rel.a) && lower.includes(rel.b)) {
-					rel.setAFirst();
-				} else if (lower.includes(rel.a) && upper.includes(rel.b)) {
-					rel.setBFirst();
-				}
+		var upper = this.getUpper(first ); upper.push(first );
+		var lower = this.getLower(second); lower.push(second);
+		for (var i = 0; i < upper.length; i++) {
+			for (var j = 0; j < lower.length; j++) {
+				this.setFirstSecond(upper[i], lower[j]);
 			}
 		}
 	}
 	getOrder() {
 		var processed = new Array(this.items.length);
 		var order = [];
-		var items = this.items;
-		function recurse(index) {
-			processed[index] = true;
-			var upper = items[index].getUpper();
+		var tthis = this;
+		function recurse(item) {
+			processed[item] = true;
+			var upper = tthis.getUpper(item);
 			for (var i = 0; i < upper.length; i++) {
-				var nindex = upper[i].index;
-				if (!processed[nindex]) {
-					recurse(nindex);
+				if (!processed[upper[i]]) {
+					recurse(upper[i]);
 				}
 			}
-			order.push(items[index]);
+			order.push(item);
 		}
 		for (var i = 0; i < this.items.length; i++) {
-			var index = this.items[i].index;
-			if (!processed[index]) {
-				recurse(index);
+			if (!processed[i]) {
+				recurse(i);
 			}
 		}
 		return order;
-	}
-}
-class Item {
-	constructor(index, name) {
-		this.index = index;
-		this.name = name;
-		this.relations = [];
-	}
-	addRelation(rel) {
-		this.relations.push(rel);
-	}
-	getUpper() {
-		var upper = [];
-		for (var i = 0; i < this.relations.length; i++) {
-			if (this.relations[i].second == this)
-				upper.push(this.relations[i].first);
-		}
-		return upper;
-	}
-	getLower() {
-		var lower = [];
-		for (var i = 0; i < this.relations.length; i++) {
-			if (this.relations[i].first == this)
-				lower.push(this.relations[i].second);
-		}
-		return lower;
-	}
-}
-class Relation {
-	constructor(a, b) {
-		this.a = a;
-		this.b = b;
-		this._first = null;
-		this._second = null;
-		this._ignored = false;
-
-		a.addRelation(this);
-		b.addRelation(this);
-	}
-	other(item) {
-		if (item == this.a) return this.b;
-		else return this.a;
-	}
-	setFirst(item) {
-		this._ignored = false;
-		this._first = item;
-		this._second = this.other(item);
-	}
-	setAFirst() {
-		this.setFirst(this.a);
-	}
-	setBFirst() {
-		this.setFirst(this.b);
-	}
-	get first() {
-		return this._first;
-	}
-	get second() {
-		return this._second;
-	}
-	ignore() {
-		this._ignored = true;
-	}
-	unignore() {
-		this._ignored = false;
-	}
-	isIgnored() {
-		return this._ignored;
-	}
-	isUnknown() {
-		return (!this.isIgnored()) && !this.first;
 	}
 }
 

@@ -1,18 +1,26 @@
 var SORTEE_KEY = "sortee";
 
 class List {
+	static fromJSON(str) {
+		var obj = JSON.parse(str);
+		list = new List();
+		for (var k in obj) {
+			list[k] = obj[k];
+		}
+		return list;
+	}
 	constructor(name) {
-		this.name = name;
-		this.items = [];
-		this.table = [];
-
-		this.REL_A = 0;
-		this.REL_B = 1;
-		this.REL_UNKNOWN = 2;
+		if (arguments.length == 0) {
+			// nothing
+		} else {
+			this.name = name;
+			this.items = [];
+			this.table = [];
+		}
 	}
 	addItemByName(name) {
 		for (var i = 0; i < this.items.length; i++) {
-			this.table.push(this.REL_UNKNOWN);
+			this.table.push(List.REL_UNKNOWN);
 		}
 		this.items.push(name);
 		return this.items.length - 1;
@@ -39,7 +47,8 @@ class List {
 	}
 	toAB(p) {
 		if (Array.isArray(p)) {
-			return p;
+			if (p[0] > p[1]) return [p[1], p[0]];
+			else return p;
 		} else {
 			return this.convertTableIndex(p);
 		}
@@ -52,19 +61,23 @@ class List {
 	}
 	setFirstSecond(first, second) {
 		if (first < second) {
-			this.setTable([first, second], this.REL_A);
+			this.setTable([first, second], List.REL_A);
 		} else {
-			this.setTable([first, second], this.REL_B);
+			this.setTable([first, second], List.REL_B);
 		}
 	}
+	isKnown(p) {
+		var t = this.getTable(p);
+		return t == List.REL_A || t == List.REL_B;
+	}
 	isUnknown(p) {
-		return this.getTable(p) == this.REL_UNKNOWN;
+		return this.getTable(p) == List.REL_UNKNOWN;
 	}
 	isAFirst(p) {
-		return this.getTable(p) == this.REL_A;
+		return this.getTable(p) == List.REL_A;
 	}
 	isBFirst(p) {
-		return this.getTable(p) == this.REL_B;
+		return this.getTable(p) == List.REL_B;
 	}
 	contains(p, item) {
 		var ab = this.toAB(p);
@@ -85,6 +98,23 @@ class List {
 			}
 		}
 	}
+	getWiseUnknown() {
+		var rel = this.getUnknown();
+		if (rel == undefined) return undefined;
+		var stat = rel[0];
+		var dynamic = rel[1];
+		var targets = [];
+		for (var i = 0; i < this.items.length; i++) {
+			if (i == dynamic) continue;
+			if (i == stat || (this.isKnown([i, stat]) && this.isUnknown([i, dynamic]))) {
+				targets.push(i);
+			}
+		}
+		var order = this.getOrder(targets);
+		console.log({stat:stat, dynamic:dynamic, targets:targets, order:order});
+		var half = order[Math.floor((order.length-1)/2)];
+		return this.toAB([dynamic, half]);
+	}
 	unknownCount() {
 		var count = 0;
 		for (var i = 0; i < this.table.length; i++) {
@@ -102,6 +132,11 @@ class List {
 		}
 		return upper;
 	}
+	getUpperWith(item) {
+		var upper = this.getUpper(item);
+		upper.push(item);
+		return upper;
+	}
 	getLower(item) {
 		var lower = [];
 		for (var i = 0; i < this.items.length; i++) {
@@ -111,37 +146,48 @@ class List {
 		}
 		return lower;
 	}
+	getLowerWith(item) {
+		var lower = this.getLower(item);
+		lower.push(item);
+		return lower;
+	}
 	resolve(first, second) {
-		var upper = this.getUpper(first ); upper.push(first );
-		var lower = this.getLower(second); lower.push(second);
+		var upper = this.getUpperWith(first);
+		var lower = this.getLowerWith(second);
 		for (var i = 0; i < upper.length; i++) {
 			for (var j = 0; j < lower.length; j++) {
 				this.setFirstSecond(upper[i], lower[j]);
 			}
 		}
 	}
-	getOrder() {
+	getOrder(subset) {
+		if (subset) {
+			var filter = new Array(this.items.length);
+			for (var i = 0; i < subset.length; i++) {
+				filter[subset[i]] = true;
+			}
+		}
 		var processed = new Array(this.items.length);
 		var order = [];
 		var tthis = this;
 		function recurse(item) {
+			if (processed[item] || (subset && !filter[item])) return;
 			processed[item] = true;
 			var upper = tthis.getUpper(item);
 			for (var i = 0; i < upper.length; i++) {
-				if (!processed[upper[i]]) {
-					recurse(upper[i]);
-				}
+				recurse(upper[i]);
 			}
 			order.push(item);
 		}
 		for (var i = 0; i < this.items.length; i++) {
-			if (!processed[i]) {
-				recurse(i);
-			}
+			recurse(i);
 		}
 		return order;
 	}
 }
+List.REL_A = 0;
+List.REL_B = 1;
+List.REL_UNKNOWN = 2;
 
 
 function loadLocal() {
@@ -150,6 +196,7 @@ function loadLocal() {
 	} else {
 		loadDefault();
 	}
+	window.list = undefined;
 }
 function saveLocal() {
 	var json = JSON.stringify(window.sortee);
@@ -198,7 +245,7 @@ function updateList() {
 	if (window.list) {
 		$(".list-name").text(window.list.name);
 		for (var i = 0; i < window.list.items.length; i++) {
-			$("select.list-items").append("<option>" + window.list.items[i].name + "</option>");
+			$("select.list-items").append("<option>" + window.list.items[i] + "</option>");
 		}
 	} else {
 		$(".list-name").text("No list selected");

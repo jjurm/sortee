@@ -28,7 +28,6 @@
 	<button type="button" onclick="addItem();">Add</button>
 </div>
 <script src="js/sortee.js"></script>
-	<script src="js/sortee-temp.js"></script> <!-- temp -->
 <script>
 	loadLocal();
 	updateGui();

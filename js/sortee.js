@@ -3,7 +3,10 @@ var SORTEE_KEY = "sortee";
 class List {
 	static fromJSON(str) {
 		var obj = JSON.parse(str);
-		list = new List();
+		return List.fromObject(obj);
+	}
+	static fromObject(obj) {
+		var list = new List();
 		for (var k in obj) {
 			list[k] = obj[k];
 		}
@@ -17,6 +20,36 @@ class List {
 			this.items = [];
 			this.table = [];
 		}
+		this.history = [];
+	}
+	createMemento() {
+		var mem = {
+			items: this.items.slice(),
+			table: this.table.slice()
+		};
+		return mem;
+	}
+	restoreMemento(mem) {
+		this.items = mem.items;
+		this.table = mem.table;
+	}
+	canUndo() {
+		return this.history.length >= 1;
+	}
+	saveState() {
+		this.history.push(this.createMemento());
+	}
+	undo() {
+		if (this.canUndo()) {
+			this.restoreMemento(this.history.pop());
+		}
+	}
+	createFilter(set) {
+		var filter = new Array(this.items.length);
+		for (var i = 0; i < set.length; i++) {
+			filter[set[i]] = true;
+		}
+		return filter;
 	}
 	addItemByName(name) {
 		for (var i = 0; i < this.items.length; i++) {
@@ -24,6 +57,27 @@ class List {
 		}
 		this.items.push(name);
 		return this.items.length - 1;
+	}
+	removeItems(toRemove) {
+		if (!Array.isArray(toRemove)) {
+			toRemove = [toRemove];
+		}
+		var items_filter = this.createFilter(toRemove);
+		var items_new = [];
+		for (var i = 0; i < this.items.length; i++) {
+			if (!items_filter[i]) {
+				items_new.push(this.items[i]);
+			}
+		}
+		var table_new = [];
+		for (var i = 0; i < this.table.length; i++) {
+			var ab = this.toAB(i);
+			if (!items_filter[ab[0]] && !items_filter[ab[1]]) {
+				table_new.push(this.table[i]);
+			}
+		}
+		this.items = items_new;
+		this.table = table_new;
 	}
 	convertTableIndex(p) {
 		if (Array.isArray(p)) {
@@ -111,7 +165,6 @@ class List {
 			}
 		}
 		var order = this.getOrder(targets);
-		console.log({stat:stat, dynamic:dynamic, targets:targets, order:order});
 		var half = order[Math.floor((order.length-1)/2)];
 		return this.toAB([dynamic, half]);
 	}
@@ -162,10 +215,7 @@ class List {
 	}
 	getOrder(subset) {
 		if (subset) {
-			var filter = new Array(this.items.length);
-			for (var i = 0; i < subset.length; i++) {
-				filter[subset[i]] = true;
-			}
+			var filter = this.createFilter(subset);
 		}
 		var processed = new Array(this.items.length);
 		var order = [];
@@ -184,6 +234,18 @@ class List {
 		}
 		return order;
 	}
+	flushOrder() {
+		for (var i = 0; i < this.table.length; i++) {
+			this.table[i] = List.REL_UNKNOWN;
+		}
+	}
+	toJSON() {
+		return {
+			name: this.name,
+			items: this.items,
+			table: this.table
+		};
+	}
 }
 List.REL_A = 0;
 List.REL_B = 1;
@@ -191,10 +253,12 @@ List.REL_UNKNOWN = 2;
 
 
 function loadLocal() {
+	loadDefault();
 	if (localStorage.getItem(SORTEE_KEY)) {
-		window.sortee = JSON.parse(localStorage.getItem(SORTEE_KEY));
-	} else {
-		loadDefault();
+		var parsed = JSON.parse(localStorage.getItem(SORTEE_KEY));
+		for (var k in parsed.lists) {
+			window.sortee.lists[k] = List.fromObject(parsed.lists[k]);
+		}
 	}
 	window.list = undefined;
 }
@@ -213,13 +277,16 @@ function createList(name) {
 		var name = $("#new-list-name").val();
 		$("#new-list-name").val("");
 	}
+	if (name.length == 0) return;
 	if (!window.sortee.lists[name]) {
 		window.sortee.lists[name] = new List(name);
 	}
 	updateGui();
 	saveLocal();
 }
-function selectList(key) {
+function selectList(el, key) {
+	$(".lists-buttons a").removeClass("active");
+	$(el).addClass("active");
 	window.list = sortee.lists[key];
 	updateList();
 }
@@ -232,11 +299,31 @@ function removeList() {
 		saveLocal();
 	}
 }
+function removeItems() {
+	if (window.list) {
+		window.list.saveState();
+		var toRemove = [];
+		$("#list-items-selection :selected").each(function(i, el) {
+			toRemove.push(parseInt($(el).val()));
+		});
+		window.list.removeItems(toRemove);
+		updateList();
+		saveLocal();
+	}
+}
+function removeOrder() {
+	if (window.list) {
+		window.list.saveState();
+		window.list.flushOrder();
+		updateList();
+		saveLocal();
+	}
+}
 function updateGui() {
-	var el = $("#list-local").empty();
+	var el = $(".lists-buttons").empty();
 	for (var key in window.sortee.lists) {
 		if (window.sortee.lists.hasOwnProperty(key) && window.sortee.lists[key]) {
-			el.append('<li><a href="#" onclick="selectList(\''+key+'\');">'+key+'</a></li>');
+			el.append('<a href="#" class="list-group-item" onclick="selectList(this, \''+key+'\');">'+key+'</a>');
 		}
 	}
 }
@@ -244,29 +331,103 @@ function updateList() {
 	$("select.list-items").empty();
 	if (window.list) {
 		$(".list-name").text(window.list.name);
-		for (var i = 0; i < window.list.items.length; i++) {
-			$("select.list-items").append("<option>" + window.list.items[i] + "</option>");
+		var order = window.list.getOrder();
+		for (var i = 0; i < order.length; i++) {
+			$("select.list-items").append("<option value=\"" + order[i] + "\">" + window.list.items[order[i]] + "</option>");
+		}
+		$(".list-action").prop('disabled', false);
+		var count = window.list.unknownCount();
+		$(".list-unknown").text(count);
+		if (count >= 1) {
+			window.question = window.list.getWiseUnknown();
+			$(".question .item-a").text(window.list.items[window.question[0]]);
+			$(".question .item-b").text(window.list.items[window.question[1]]);
+		} else {
+			$(".question .list-action").prop('disabled', true);
+			$(".question .item").text("");
+		}
+		if (!window.list.canUndo()) {
+			$(".action-undo").prop('disabled', true);
 		}
 	} else {
 		$(".list-name").text("No list selected");
+		$(".list-action").prop('disabled', true);
+		$(".question .item").text("");
 	}
 }
-function reset() {
-	loadDefault();
-	saveLocal();
-	createList("LList");
-	selectList("LList");
-	addItem("0");
-	addItem("1");
-	addItem("2");
-	addItem("3");
-}
-function addItem(name) {
-	if (arguments.length == 0) {
-		var name = $("#new-item-name").val();
-		$("#new-item-name").val("");
+function addItems() {
+	if (window.list) {
+		window.list.saveState();
+		var names = $("#new-items").val().split("\n");
+		$("#new-items").val("");
+		for (var i = 0; i < names.length; i++) {
+			window.list.addItemByName(names[i]);
+		}
+		updateList();
+		saveLocal();
 	}
-	window.list.addItemByName(name);
+}
+function listUndo() {
+	if (window.list && window.list.canUndo()) {
+		window.list.undo();
+		updateList();
+		saveLocal();
+	}
+}
+function answerQuestion(el) {
+	window.list.saveState();
+	if ($(el).hasClass("item-a")) {
+		window.list.resolve(window.question[0], window.question[1]);
+	} else if ($(el).hasClass("item-b")) {
+		window.list.resolve(window.question[1], window.question[0]);
+	}
+	$(".question .item").blur();
 	updateList();
 	saveLocal();
 }
+function reset() {
+	loadDefault();
+	var name = "LList";
+	createList(name);
+	selectList($(".lists-buttons a:text('"+name+"')"), name);
+	window.list.addItemByName("0");
+	window.list.addItemByName("1");
+	window.list.addItemByName("2");
+	window.list.addItemByName("3");
+	updateList();
+	saveLocal();
+}
+function exportList() {
+	if (window.list) {
+		var str = "";
+		var order = window.list.getOrder();
+		for (var i = 0; i < order.length; i++) {
+			str += window.list.items[order[i]] + "\r\n";
+		}
+		var el = $("<a/>");
+		el.attr("href", 'data:text/plain;charset=utf-8,' + encodeURIComponent(str));
+		el.attr("download", window.list.name + " export.txt");
+		el.css("display", "none");
+		$("body").append(el);
+		el[0].click();
+		el.remove();
+	}
+}
+
+$(".form-create-list").submit(function(e) {
+	e.preventDefault();
+	createList();
+	return false;
+});
+$(".action-remove-list").click(removeList);
+$(".action-remove-items").click(removeItems);
+$(".action-remove-order").click(removeOrder);
+$(".action-add-item").click(addItems);
+$(".action-undo").click(listUndo);
+$(".action-export").click(exportList);
+$(".question .item").click(function(e){
+	answerQuestion(e.target);
+});
+loadLocal();
+updateGui();
+updateList();

@@ -15,13 +15,20 @@
 <div class="container">
 	<div class="row first-row">
 		<div class="col-xs-6">
-			<form class="form-inline form-create-list">
+			<form class="form-inline form-create-list control-group">
 				<div class="form-group">
 					<label for="new-list-name">Create list:</label>
 					<input id="new-list-name" type="text" class="form-control" autofocus />
 					<button type="submit" class="btn btn-default action-create-list">Create</button>
 				</div>
 			</form>
+			<div class="control-group">
+				<label>Questioning strategy:</label>
+				<div class="btn-group strategies" role="group">
+					<button type="button" class="btn btn-default strategy" value="1">Top places first</button>
+					<button type="button" class="btn btn-default strategy" value="0">Progressive</button>
+				</div>
+			</div>
 		</div>
 		<div class="col-xs-6">
 			<div class="lists-buttons list-group"></div>
@@ -31,6 +38,9 @@
 		<div class="col-xs-6">
 			<h1 class="list-name">No list selected</h1>
 			<p class="lead">Unknown: <span class="list-unknown"></span></p>
+			<div class="progress">
+				<div class="progress-bar list-progress" role="progressbar" style="width: 0%;"></div>
+			</div>
 			<div class="question">
 				<div class="btn-group btn-group-justified" role="group">
 					<div class="btn-group btn-group-lg" role="group">

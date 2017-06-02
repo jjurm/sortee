@@ -127,6 +127,12 @@ class List {
 	isUnknown(p) {
 		return this.getTable(p) == List.REL_UNKNOWN;
 	}
+	isItemKnown(item) {
+		for (var i = 0; i < this.items.length; i++) {
+			if (item != i && this.isUnknown([item, i])) return false;
+		}
+		return true;
+	}
 	isAFirst(p) {
 		return this.getTable(p) == List.REL_A;
 	}
@@ -152,21 +158,17 @@ class List {
 			}
 		}
 	}
-	getWiseUnknown() {
-		var rel = this.getUnknown();
-		if (rel == undefined) return undefined;
-		var stat = rel[0];
-		var dynamic = rel[1];
+	getWiseUnknown(stat, dynamic) {
 		var targets = [];
 		for (var i = 0; i < this.items.length; i++) {
-			if (i == dynamic) continue;
-			if (i == stat || (this.isKnown([i, stat]) && this.isUnknown([i, dynamic]))) {
+			if (i == stat) continue;
+			if (i == dynamic || (this.isKnown([i, dynamic]) && this.isUnknown([i, stat]))) {
 				targets.push(i);
 			}
 		}
 		var order = this.getOrder(targets);
 		var half = order[Math.floor((order.length-1)/2)];
-		return this.toAB([dynamic, half]);
+		return this.toAB([stat, half]);
 	}
 	unknownCount() {
 		var count = 0;
@@ -239,6 +241,11 @@ class List {
 			this.table[i] = List.REL_UNKNOWN;
 		}
 	}
+	getProgress() {
+		var n = this.items.length;
+		var total = n * (n-1) / 2;
+		return 1 - this.unknownCount() / total;
+	}
 	toJSON() {
 		return {
 			name: this.name,
@@ -250,6 +257,36 @@ class List {
 List.REL_A = 0;
 List.REL_B = 1;
 List.REL_UNKNOWN = 2;
+List.strategies = [
+	{ // progressive
+		// sequentially introduce new items and insert them with binary search
+		getUnknown : function(list) {
+			var rel;
+			for (var i = 0; i < list.table.length; i++) {
+				if (list.isUnknown(i)) {
+					rel = list.toAB(i);
+					break;
+				}
+			}
+			var dynamic = rel[0];
+			var stat = rel[1];
+			return list.getWiseUnknown(stat, dynamic);
+		}
+	},
+	{ // top places first
+		getUnknown : function(list) {
+			var order = list.getOrder();
+			for (var i = 0; i < order.length; i++) {
+				for (var j = 0; j < order.length; j++) {
+					var p = [order[i], order[j]];
+					if (i != j && list.isUnknown(p)) {
+						return list.getWiseUnknown(order[i], order[j]);
+					}
+				}
+			}
+		}
+	}
+];
 
 
 function loadLocal() {
@@ -269,6 +306,7 @@ function saveLocal() {
 function loadDefault() {
 	window.sortee = {
 		lists : {},
+		strategy : 1
 	};
 }
 //===== Lists =====
@@ -284,10 +322,9 @@ function createList(name) {
 	updateGui();
 	saveLocal();
 }
-function selectList(el, key) {
-	$(".lists-buttons a").removeClass("active");
-	$(el).addClass("active");
+function selectList(key) {
 	window.list = sortee.lists[key];
+	updateGui();
 	updateList();
 }
 function removeList() {
@@ -323,9 +360,14 @@ function updateGui() {
 	var el = $(".lists-buttons").empty();
 	for (var key in window.sortee.lists) {
 		if (window.sortee.lists.hasOwnProperty(key) && window.sortee.lists[key]) {
-			el.append('<a href="#" class="list-group-item" onclick="selectList(this, \''+key+'\');">'+key+'</a>');
+			el.append('<a href="#" class="list-group-item" value="'+key+'" onclick="selectList(\''+key+'\');">'+key+'</a>');
 		}
 	}
+	if (window.list) {
+		$('.lists-buttons a[value="'+window.list.name+'"]').addClass("active");
+	}
+	$(".strategies .strategy").removeClass("active");
+	$(".strategies .strategy[value="+window.sortee.strategy+"]").addClass("active");
 }
 function updateList() {
 	$("select.list-items").empty();
@@ -333,13 +375,21 @@ function updateList() {
 		$(".list-name").text(window.list.name);
 		var order = window.list.getOrder();
 		for (var i = 0; i < order.length; i++) {
-			$("select.list-items").append("<option value=\"" + order[i] + "\">" + window.list.items[order[i]] + "</option>");
+			el = $("<option value=\"" + order[i] + "\">" + window.list.items[order[i]] + "</option>");
+			if (window.list.isItemKnown(order[i])) {
+				el.addClass("bg-success");
+			}
+			$("select.list-items").append(el);
 		}
 		$(".list-action").prop('disabled', false);
 		var count = window.list.unknownCount();
 		$(".list-unknown").text(count);
+		
+		var progress = window.list.getProgress() * 100;
+		$(".list-progress").css('width', progress + '%');
+		
 		if (count >= 1) {
-			window.question = window.list.getWiseUnknown();
+			window.question = List.strategies[window.sortee.strategy].getUnknown(window.list);
 			$(".question .item-a").text(window.list.items[window.question[0]]);
 			$(".question .item-b").text(window.list.items[window.question[1]]);
 		} else {
@@ -352,6 +402,7 @@ function updateList() {
 	} else {
 		$(".list-name").text("No list selected");
 		$(".list-action").prop('disabled', true);
+		$(".list-progress").css('width', '0%');
 		$(".question .item").text("");
 	}
 }
@@ -361,7 +412,8 @@ function addItems() {
 		var names = $("#new-items").val().split("\n");
 		$("#new-items").val("");
 		for (var i = 0; i < names.length; i++) {
-			window.list.addItemByName(names[i]);
+			if (names[i].length > 0)
+				window.list.addItemByName(names[i]);
 		}
 		updateList();
 		saveLocal();
@@ -389,7 +441,7 @@ function reset() {
 	loadDefault();
 	var name = "LList";
 	createList(name);
-	selectList($(".lists-buttons a:text('"+name+"')"), name);
+	selectList(name);
 	window.list.addItemByName("0");
 	window.list.addItemByName("1");
 	window.list.addItemByName("2");
@@ -418,6 +470,11 @@ $(".form-create-list").submit(function(e) {
 	e.preventDefault();
 	createList();
 	return false;
+});
+$(".strategies .strategy").click(function(e) {
+	window.sortee.strategy = $(e.target).val();
+	updateGui();
+	updateList();
 });
 $(".action-remove-list").click(removeList);
 $(".action-remove-items").click(removeItems);
